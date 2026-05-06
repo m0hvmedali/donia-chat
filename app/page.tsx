@@ -50,6 +50,9 @@ export default function Home() {
   const processChatText = (text: string) => {
     try {
       const parsed = parseWhatsAppChat(text);
+      if (parsed.messages.length === 0) {
+        throw new Error("Could not parse any messages from the file. Ensure it is a valid WhatsApp chat format.");
+      }
       const analysis = analyzeChat(parsed.messages, parsed.participants);
       
       const index = new FlexSearch.Document({
@@ -89,17 +92,17 @@ export default function Home() {
       const text = event.target?.result as string;
       
       try {
-        // Save to supabase
+        // Try to save to supabase
         await saveChatToSupabase(text);
-        setLoadingMsg('Parsing and building index...');
-        setTimeout(() => {
-          processChatText(text);
-        }, 50);
       } catch (err) {
         console.error("Upload to supabase failed:", err);
-        alert("Failed to save to Supabase. Check console/network.");
-        setLoading(false);
+        alert("Failed to save to Supabase (check your table setup). Continuing with local parsing...");
       }
+      
+      setLoadingMsg('Parsing and building index...');
+      setTimeout(() => {
+        processChatText(text);
+      }, 50);
     };
     reader.readAsText(file);
   };

@@ -18,29 +18,49 @@ export function parseWhatsAppChat(text: string): ChatData {
   const participantsSet = new Set<string>();
 
   // Regular expression to match standard WhatsApp chat formats + Arabic formats
-  const lineRegex = /^\[?(\d{1,4}[/\-\.]\d{1,2}[/\-\.]\d{1,4})[,\s]+(\d{1,2}:\d{1,2}(?::\d{1,2})?(?:\s*[a-zA-Z]{1,2}|\s*[صم])?)\]?\s*(?:-\s*)?([^:]+):\s*(.*)$/i;
-
+  // Variables are embedded inside the loop
+  
   let currentMsg: Message | null = null;
   let idCounter = 0;
 
   for (let i = 0; i < lines.length; i++) {
-    const originalLine = lines[i];
+    const originalLine = lines[i].replace(/\r/g, '');
     if (!originalLine.trim()) continue;
 
     // Clean up WhatsApp specific unicode characters and convert Arabic numerals to Latin
     const cleanLine = originalLine
-      .replace(/[\u200E\u200F\u202A\u202B\u202C\u202D\u202E\u202F]/g, '') // Remove LTR/RTL marks and non-breaking spaces
+      .replace(/[\u200E\u200F\u202A\u202B\u202C\u202D\u202E\u202F\uFEFF]/g, ' ') // Remove LTR/RTL marks, BOM, and replace narrow space with space
+      .trim()
       .replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d).toString()); // Arabic to English numbers
 
-    const match = cleanLine.match(lineRegex);
+    // Regex 1: DD/MM/YYYY, HH:MM - Sender: Message
+    const match1 = cleanLine.match(/^\[?(\d{1,4}[/\-\.]\d{1,2}[/\-\.]\d{1,4})[,\s]+(\d{1,2}[:.]\d{1,2}(?:[:.]\d{1,2})?(?:\s*[a-zA-Z]{1,2}|\s*[صم])?)\]?\s*(?:[-—–]\s*)?([^:]+):\s*(.*)$/i);
+    // Regex 2: HH:MM, DD/MM/YYYY - Sender: Message (Reverse format)
+    const match2 = cleanLine.match(/^\[?(\d{1,2}[:.]\d{1,2}(?:[:.]\d{1,2})?(?:\s*[a-zA-Z]{1,2}|\s*[صم])?)[,\s]+(\d{1,4}[/\-\.]\d{1,2}[/\-\.]\d{1,4})\]?\s*(?:[-—–]\s*)?([^:]+):\s*(.*)$/i);
+
+    let match = null;
+    let date = '', time = '', sender = '', text = '';
+
+    if (match1) {
+      match = match1;
+      date = match[1];
+      time = match[2];
+      sender = match[3];
+      text = match[4];
+    } else if (match2) {
+      match = match2;
+      time = match[1];
+      date = match[2];
+      sender = match[3];
+      text = match[4];
+    }
 
     if (match) {
       if (currentMsg) {
         messages.push(currentMsg);
       }
 
-      const [, date, time, sender, text] = match;
-      
+
       // Basic system messages often don't have a sender or the sender is the system.
       // We can try to filter out basic encryption messages etc. if needed, but keeping it simple.
       if (!sender.includes('added') && !sender.includes('removed') && !sender.includes('Encryption')) {
@@ -91,10 +111,17 @@ function parseTimestamp(dateStr: string, timeStr: string): number {
              if (!isNaN(fallbackDate.getTime())) {
                  return fallbackDate.getTime();
              }
+             // Fallback 2: YY/MM/DD
+             const fallbackDate2 = new Date(`20${parts[2]} ${parts[1]} ${parts[0]} ${cleanTime}`);
+             if (!isNaN(fallbackDate2.getTime())) {
+                 return fallbackDate2.getTime();
+             }
         }
     }
-    return date.getTime() || Date.now();
+    
+    const time = date.getTime();
+    return isNaN(time) ? 0 : time;
   } catch {
-    return Date.now();
+    return 0;
   }
 }
