@@ -8,6 +8,34 @@ import { Virtuoso } from 'react-virtuoso';
 import FlexSearch from 'flexsearch';
 import { saveChatToSupabase, loadChatFromSupabase } from '@/lib/supabase';
 
+function formatDateVerbose(dateStr: string) {
+  try {
+     let d = new Date(dateStr);
+     if (isNaN(d.getTime())) {
+        const parts = dateStr.split(/[\/\-.]/);
+        if (parts.length >= 3) {
+           let year = parts[2].length === 2 ? `20${parts[2]}` : parts[2];
+           let formatTry = new Date(`${year}-${parts[1]}-${parts[0]}`);
+           if (!isNaN(formatTry.getTime())) d = formatTry;
+           else d = new Date(`${year}-${parts[0]}-${parts[1]}`);
+        }
+     }
+     if (!isNaN(d.getTime())) {
+        return d.toLocaleDateString('ar-EG', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+     }
+  } catch (e) {}
+  return dateStr;
+}
+
+function formatHourVerbose(hourStr: string) {
+    if (!hourStr || !hourStr.includes(':')) return hourStr;
+    const h = parseInt(hourStr.split(':')[0]);
+    if (h === 0) return '١٢ صباحاً';
+    if (h === 12) return '١٢ مساءً';
+    if (h > 12) return String(h - 12).replace(/\d/g, d => '٠١٢٣٤٥٦٧٨٩'[parseInt(d)] || d) + ' مساءً';
+    return String(h).replace(/\d/g, d => '٠١٢٣٤٥٦٧٨٩'[parseInt(d)] || d) + ' صباحاً';
+}
+
 export default function Home() {
   const [chatData, setChatData] = useState<ChatData | null>(null);
   const [stats, setStats] = useState<ChatStats | null>(null);
@@ -22,6 +50,7 @@ export default function Home() {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [selectedSenders, setSelectedSenders] = useState<string[]>([]);
+  const [mobileTab, setMobileTab] = useState<'chat' | 'stats'>('chat');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -248,7 +277,7 @@ export default function Home() {
 
           {/* Advanced Filters Dropdown */}
           {showFilters && (
-            <div className="absolute top-12 right-0 w-80 bg-[#14161A] border border-white/10 rounded-xl shadow-2xl p-4 flex flex-col gap-4 z-50">
+            <div className="absolute top-12 right-0 w-[341px] h-[153.8px] bg-[#14161A] border border-white/10 rounded-xl shadow-2xl p-4 flex flex-col gap-4 z-50">
                <div>
                   <label className="text-[10px] text-white/40 uppercase tracking-widest font-bold mb-2 block">Date Range</label>
                   <div className="flex items-center gap-2">
@@ -302,29 +331,60 @@ export default function Home() {
         </div>
       </header>
 
-      <main className="flex-1 flex overflow-hidden flex-col md:flex-row">
+      {/* Mobile/Tablet Tabs */}
+      <div className="flex lg:hidden border-b border-white/5 bg-[#0F1115] shrink-0">
+        <button 
+          className={`flex-1 py-3 text-[11px] font-bold tracking-widest transition-colors ${mobileTab === 'chat' ? 'text-indigo-400 border-b-2 border-indigo-400 bg-white/5' : 'text-white/40 hover:bg-white/5'}`} 
+          onClick={() => setMobileTab('chat')}
+        >
+          المحادثة
+        </button>
+        <button 
+          className={`flex-1 py-3 text-[11px] font-bold tracking-widest transition-colors ${mobileTab === 'stats' ? 'text-indigo-400 border-b-2 border-indigo-400 bg-white/5' : 'text-white/40 hover:bg-white/5'}`} 
+          onClick={() => setMobileTab('stats')}
+        >
+          الإحصائيات والتحليلات
+        </button>
+      </div>
+
+      <main className={`flex-1 flex flex-col lg:flex-row ${mobileTab === 'stats' ? 'overflow-y-auto' : 'overflow-hidden'} lg:overflow-hidden`}>
         
         {/* Left Rail: Filters & Heatmap */}
-        <aside className="w-full md:w-64 border-b md:border-b-0 md:border-r border-white/5 flex flex-col p-4 md:p-6 gap-6 md:gap-8 bg-[#0A0B0D] shrink-0 overflow-y-auto">
+        <aside className={`${mobileTab === 'stats' ? 'flex' : 'hidden'} lg:flex w-full lg:w-64 border-b lg:border-b-0 lg:border-r border-white/5 flex-col p-4 lg:p-6 gap-6 lg:gap-8 bg-[#0A0B0D] shrink-0 lg:overflow-y-auto`}>
           <div>
-            <h3 className="text-[10px] md:text-[11px] font-bold text-white/30 uppercase tracking-widest mb-3 md:mb-4">Monthly Heatmap</h3>
-            <div className="grid grid-cols-7 gap-1">
-               {Object.values(stats.activityByMonth).slice(-21).map((val, i) => {
-                  const max = Math.max(...Object.values(stats.activityByMonth), 1);
-                  const opacity = Math.max(0.1, val / max);
-                  return (
-                    <div key={i} className="w-full aspect-square rounded-[2px]" style={{ backgroundColor: `rgba(99,102,241,${opacity})` }} title={`Activity: ${val}`}></div>
-                  );
-               })}
+            <h3 className="text-[10px] md:text-[11px] font-bold tracking-widest mb-3 md:mb-4 bg-gradient-to-r from-indigo-400 to-indigo-200 bg-clip-text text-transparent">أكثر الأيام محادثة</h3>
+            <div className="space-y-2">
+               {Object.entries(stats.activityByDate)
+                  .sort((a,b) => b[1] - a[1])
+                  .filter(([key]) => key !== 'Unknown')
+                  .slice(0, 5)
+                  .map(([dateKey, count], i) => (
+                         <div key={dateKey} className="flex justify-between items-center bg-white/5 p-[10px] rounded-lg border border-white/5">
+                            <span className="text-[11px] text-indigo-100/90 font-medium">{formatDateVerbose(dateKey)}</span>
+                            <span className="text-[10px] text-white/50 bg-black/20 px-2 py-0.5 rounded-[4px] font-mono">{count}</span>
+                         </div>
+               ))}
             </div>
-            <div className="mt-2 flex justify-between text-[8px] md:text-[9px] text-white/20">
-              <span>OLDER</span>
-              <span>RECENT</span>
+          </div>
+          
+          <div>
+            <h3 className="text-[10px] md:text-[11px] font-bold tracking-widest mb-3 md:mb-4 bg-gradient-to-r from-emerald-400 to-emerald-200 bg-clip-text text-transparent">أكثر الأوقات محادثة</h3>
+            <div className="space-y-2">
+               {Object.entries(stats.activityByHour)
+                  .sort((a,b) => b[1] - a[1])
+                  .filter(([key]) => key !== 'Unknown')
+                  .slice(0, 5)
+                  .map(([hour, count], i) => (
+                         <div key={hour} className="flex justify-between items-center bg-white/5 p-[10px] rounded-lg border border-white/5">
+                            <span className="text-[11px] text-emerald-100/90 font-medium whitespace-nowrap" dir="rtl">{formatHourVerbose(hour)}</span>
+                            <span className="text-[10px] text-white/50 bg-black/20 px-2 py-0.5 rounded-[4px] font-mono">{count}</span>
+                         </div>
+               ))}
             </div>
           </div>
 
           <div>
-            <h3 className="text-[10px] md:text-[11px] font-bold text-white/30 uppercase tracking-widest mb-3 md:mb-4">Participants</h3>
+            <h3 className="text-[10px] md:text-[11px] font-bold tracking-widest mb-3 md:mb-4 bg-gradient-to-r from-amber-400 to-amber-200 bg-clip-text text-transparent" dir="rtl">نسبة المشاركة</h3>
             <div className="space-y-3">
               {stats.dominance.map((dom, i) => {
                   const colors = ['bg-indigo-500', 'bg-emerald-500', 'bg-rose-500', 'bg-amber-500', 'bg-cyan-500'];
@@ -343,21 +403,16 @@ export default function Home() {
           </div>
 
           <div className="mt-auto pt-4 md:pt-0 hidden md:block">
-            <div className="p-3 md:p-4 bg-indigo-600/10 border border-indigo-500/20 rounded-xl">
-              <p className="text-[10px] md:text-[11px] text-indigo-300 font-medium tracking-tight">INDEX PERFORMANCE</p>
-              <p className="text-lg md:text-xl font-bold mt-1 text-white">0.05ms</p>
-              <p className="text-[9px] md:text-[10px] text-indigo-300/50">FlexSearch v2 Cluster</p>
-            </div>
           </div>
         </aside>
 
         {/* Center: Chat View */}
-        <section className="flex-1 flex flex-col bg-[#0F1115] relative overflow-hidden">
+        <section className={`${mobileTab === 'chat' ? 'flex' : 'hidden'} lg:flex flex-1 flex-col bg-[#0F1115] relative overflow-hidden`}>
           <div className="flex-1 overflow-hidden relative">
             <div className="absolute inset-x-0 top-0 h-16 bg-gradient-to-b from-[#0F1115] to-transparent z-10 pointer-events-none"></div>
             
             <Virtuoso
-              className="w-full h-full p-4 md:p-8"
+              className="w-full h-full p-4 lg:p-8"
               data={filteredMessages}
               initialTopMostItemIndex={filteredMessages.length > 0 ? filteredMessages.length - 1 : 0}
               itemContent={(index, msg) => {
@@ -417,18 +472,18 @@ export default function Home() {
                ))}
             </div>
             <div className="flex justify-between items-center mt-1">
-               <span className="text-[8px] md:text-[9px] font-mono text-white/30">BEGIN</span>
-               <span className="text-[8px] md:text-[9px] font-mono text-white/30">TIMELINE HEATMAP</span>
-               <span className="text-[8px] md:text-[9px] font-mono text-white/30">END</span>
+               <span className="text-[9px] md:text-[10px] text-white/30" dir="rtl">البداية</span>
+               <span className="text-[9px] md:text-[10px] text-white/30" dir="rtl">المخطط الزمني للمحادثة</span>
+               <span className="text-[9px] md:text-[10px] text-white/30" dir="rtl">النهاية</span>
             </div>
           </div>
         </section>
 
         {/* Right Rail: Statistics */}
-        <aside className="w-full md:w-80 border-t md:border-t-0 md:border-l border-white/5 p-4 md:p-6 space-y-6 md:space-y-8 bg-[#0A0B0D] shrink-0 overflow-y-auto hidden lg:block">
+        <aside className={`${mobileTab === 'stats' ? 'block' : 'hidden'} lg:block w-full lg:w-80 border-t lg:border-t-0 lg:border-l border-white/5 p-4 lg:p-6 space-y-6 lg:space-y-8 bg-[#0A0B0D] shrink-0 lg:overflow-y-auto`}>
           
           <section>
-            <h3 className="text-[10px] md:text-[11px] font-bold text-white/30 uppercase tracking-widest mb-4 md:mb-6">Dominance Analysis</h3>
+            <h3 className="text-[10px] md:text-[11px] font-bold tracking-widest mb-4 md:mb-6 bg-gradient-to-r from-indigo-400 to-indigo-200 bg-clip-text text-transparent" dir="rtl">تحليل المشاركة</h3>
             {stats.dominance.length >= 2 && (
               <div className="relative h-24 md:h-32 flex items-end gap-2">
                 <div 
@@ -452,52 +507,44 @@ export default function Home() {
           </section>
 
           <section>
-            <h3 className="text-[10px] md:text-[11px] font-bold text-white/30 uppercase tracking-widest mb-3 md:mb-4">Lexicon (Top Keywords)</h3>
-            <div className="flex flex-wrap gap-2">
+            <h3 className="text-[10px] md:text-[11px] font-bold tracking-widest mb-3 md:mb-4 bg-gradient-to-r from-emerald-400 to-emerald-200 bg-clip-text text-transparent" dir="rtl">أكثر الكلمات استخداماً</h3>
+            <div className="flex flex-wrap gap-2" dir="rtl">
               {stats.topWords.slice(0, 10).map((w, i) => (
                   <span key={w.word} className="px-2 md:px-3 py-1 bg-white/5 border border-white/10 rounded-full text-[10px] md:text-xs">
-                    {w.word} <span className="text-white/40 ml-1">{w.count}</span>
+                    {w.word} <span className="text-white/40 mr-1">{w.count}</span>
                   </span>
               ))}
             </div>
           </section>
 
           <section>
-            <h3 className="text-[10px] md:text-[11px] font-bold text-white/30 uppercase tracking-widest mb-3 md:mb-4">Sentiment & Vitality</h3>
-            <div className="space-y-4">
+            <h3 className="text-[10px] md:text-[11px] font-bold tracking-widest mb-3 md:mb-4 bg-gradient-to-r from-rose-400 to-rose-200 bg-clip-text text-transparent" dir="rtl">المشاعر والإحصائيات</h3>
+            <div className="space-y-4" dir="rtl">
               <div>
                 <div className="flex justify-between text-[10px] md:text-xs mb-1">
-                  <span className="text-white/60">Overall Sentiment</span>
+                  <span className="text-white/60">المزاج العام للمحادثة</span>
                   {/* Score ranges from -1 to 1 */}
-                  <span className={`font-mono ${stats.sentiment.overall >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  <span className={`font-mono ${stats.sentiment.overall >= 0 ? 'text-emerald-400' : 'text-rose-400'}`} dir="ltr">
                      {stats.sentiment.overall > 0 ? '+' : ''}{stats.sentiment.overall.toFixed(2)}
                   </span>
                 </div>
-                <div className="w-full h-1 bg-white/5 rounded-full overflow-hidden flex">
-                  {/* Visual bar: Map -1..1 to 0..100% */}
+                <div className="w-full h-1 bg-white/5 rounded-full overflow-hidden flex" dir="ltr">
                   <div 
                       className={`h-full ${stats.sentiment.overall >= 0 ? 'bg-emerald-500' : 'bg-rose-500'}`} 
                       style={{ width: `${((stats.sentiment.overall + 1) / 2) * 100}%` }}
                   ></div>
                 </div>
-                <div className="flex justify-between mt-2 flex-wrap gap-2">
-                   {Object.entries(stats.sentiment.byParticipant).slice(0,2).map(([sender, score]) => (
-                      <div key={sender} className="text-[9px] text-white/40">
-                         {sender.substring(0,8)}: <span className={score >= 0 ? 'text-emerald-400/80' : 'text-rose-400/80'}>{score}</span>
-                      </div>
-                   ))}
-                </div>
               </div>
               <div className="pt-2">
                 <div className="flex justify-between text-[10px] md:text-xs mb-1">
-                  <span className="text-white/60">Total Messages</span>
-                  <span className="text-indigo-400 font-mono">{stats.totalMessages.toLocaleString()}</span>
+                  <span className="text-white/60">إجمالي الرسائل</span>
+                  <span className="text-indigo-400 font-mono" dir="ltr">{stats.totalMessages.toLocaleString()}</span>
                 </div>
               </div>
               <div>
                 <div className="flex justify-between text-[10px] md:text-xs mb-1">
-                  <span className="text-white/60">Total Words</span>
-                  <span className="text-emerald-400 font-mono">{stats.totalWords.toLocaleString()}</span>
+                  <span className="text-white/60">إجمالي الكلمات</span>
+                  <span className="text-emerald-400 font-mono" dir="ltr">{stats.totalWords.toLocaleString()}</span>
                 </div>
               </div>
             </div>

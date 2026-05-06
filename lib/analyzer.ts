@@ -8,6 +8,7 @@ export interface ChatStats {
   dominance: { sender: string; percentage: number; count: number }[];
   activityByDate: Record<string, number>;
   activityByMonth: Record<string, number>;
+  activityByHour: Record<string, number>;
   sentiment: {
     overall: number;
     byParticipant: Record<string, number>;
@@ -45,6 +46,7 @@ export function analyzeChat(messages: Message[], participants: string[]): ChatSt
   const wordFreq: Record<string, number> = {};
   const activityByDate: Record<string, number> = {};
   const activityByMonth: Record<string, number> = {};
+  const activityByHour: Record<string, number> = {};
 
   for (const msg of messages) {
     totalMessages++;
@@ -53,18 +55,41 @@ export function analyzeChat(messages: Message[], participants: string[]): ChatSt
     const dateKey = msg.date;
     activityByDate[dateKey] = (activityByDate[dateKey] || 0) + 1;
 
-    // Monthly activity using YYYY-MM
-    let monthKey = "Unknown";
-    try {
-        const parts = msg.date.split('/');
-        if (parts.length === 3) {
-            // Assume DD/MM/YYYY or MM/DD/YYYY, let's try to get year and month
-            const year = parts[2].length === 4 ? parts[2] : (parts[2].length === 2 ? `20${parts[2]}` : parts[2]);
-            const month = parts[1].length === 2 || parseInt(parts[1]) > 12 ? parts[0] : parts[1]; // rough heuristic
-            monthKey = `${year}-${month.padStart(2, '0')}`;
-        }
-    } catch (e) {}
+    // Date and Month activity using timestamp
+    let monthKey = msg.date;
+    const dt = new Date(msg.timestamp);
+    if (!isNaN(dt.getTime()) && msg.timestamp > 0) {
+        const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+        monthKey = `${monthNames[dt.getMonth()]} ${dt.getFullYear()}`;
+    } else {
+        // Fallback if timestamp is 0
+        try {
+            const parts = msg.date.split('/');
+            if (parts.length >= 3) {
+                const year = parts[2].length === 4 ? parts[2] : (parts[2].length === 2 ? `20${parts[2]}` : parts[2]);
+                const month = parseInt(parts[1]) > 12 ? parts[0] : parts[1]; // rough heuristic
+                monthKey = `${year}-${month.padStart(2, '0')}`;
+            }
+        } catch (e) {}
+    }
+    
     activityByMonth[monthKey] = (activityByMonth[monthKey] || 0) + 1;
+
+    try {
+        let hour = "Unknown";
+        const timeUpper = (msg.time || "").toUpperCase();
+        const timeMatch = (msg.time || "").match(/(\d{1,2})[:.]\d{1,2}/);
+        if (timeMatch) {
+            let h = parseInt(timeMatch[1]);
+            if (timeUpper.includes('PM') || timeUpper.includes('م')) {
+               if (h < 12) h += 12;
+            } else if (timeUpper.includes('AM') || timeUpper.includes('ص')) {
+               if (h === 12) h = 0;
+            }
+            hour = h.toString().padStart(2, '0') + ':00';
+         }
+         activityByHour[hour] = (activityByHour[hour] || 0) + 1;
+    } catch (e) {}
 
     if (!participantStats[msg.sender]) {
        participantStats[msg.sender] = { count: 0, words: 0 };
@@ -127,6 +152,7 @@ export function analyzeChat(messages: Message[], participants: string[]): ChatSt
     dominance,
     activityByDate,
     activityByMonth,
+    activityByHour,
     sentiment: {
         overall: messagesWithSentiment > 0 ? Number((totalSentimentScore / messagesWithSentiment).toFixed(2)) : 0,
         byParticipant: finalSentimentByParticipant
